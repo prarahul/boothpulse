@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BoothPulse - Live dashboard</title>
+<style>
+  :root { --navy:#0b1f3a; --teal:#0f766e; --amber:#d97706; --red:#dc2626; --green:#16a34a; --grey:#6b7280; --bg:#f3f5f8; --card:#fff; --line:#e5e7eb; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif; background:var(--bg); color:#111827; }
+  header { background:var(--navy); color:#fff; padding:14px 24px; display:flex; align-items:center; gap:16px; }
+  header h1 { font-size:20px; margin:0; }
+  header .meta { margin-left:auto; font-size:13px; opacity:.85; display:flex; gap:14px; align-items:center; }
+  .live { display:inline-flex; align-items:center; gap:6px; }
+  .live::before { content:""; width:9px; height:9px; border-radius:50%; background:#ef4444; }
+  main { padding:20px 24px; max-width:1300px; margin:0 auto; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; }
+  .tile { background:var(--card); border-radius:10px; padding:14px 16px; border-left:5px solid var(--teal); }
+  .tile .label { font-size:13px; color:var(--grey); } .tile .value { font-size:30px; font-weight:700; margin-top:4px; font-variant-numeric:tabular-nums; }
+  .grid { display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:14px; margin-top:14px; }
+  @media (max-width:900px) { .grid { grid-template-columns:1fr; } }
+  .card { background:var(--card); border-radius:10px; padding:16px; }
+  .card h2 { font-size:15px; margin:0 0 12px; }
+  .bar-row { display:grid; grid-template-columns:90px 1fr 52px; gap:8px; align-items:center; margin:7px 0; font-size:13px; }
+  .bar { background:#eef0f3; border-radius:4px; height:16px; overflow:hidden; } .bar > div { height:100%; background:var(--teal); }
+  .bar.low > div { background:var(--amber); }
+  .num { text-align:right; font-variant-numeric:tabular-nums; }
+  .alert { display:flex; gap:10px; padding:7px 0; border-bottom:1px solid var(--line); font-size:13px; }
+  .dot { width:10px; height:10px; border-radius:50%; margin-top:4px; flex:none; }
+  .danger { background:var(--red); } .warning { background:var(--amber); } .muted { background:var(--grey); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { padding:8px; border-bottom:1px solid var(--line); text-align:left; }
+  th { cursor:pointer; color:var(--grey); font-weight:600; user-select:none; }
+  td.n, th.n { text-align:right; font-variant-numeric:tabular-nums; }
+  .pill { padding:2px 8px; border-radius:10px; color:#fff; font-size:12px; }
+  .login { max-width:360px; margin:80px auto; background:var(--card); padding:28px; border-radius:12px; }
+  .login h2 { margin-top:0; } label { font-size:13px; color:var(--grey); }
+  input { width:100%; padding:10px; font-size:16px; border:1px solid #d1d5db; border-radius:8px; margin:6px 0 14px; }
+  button { background:var(--navy); color:#fff; border:0; padding:10px 16px; border-radius:8px; font-size:15px; cursor:pointer; }
+  button.link { background:none; color:#fff; padding:0; font-size:13px; text-decoration:underline; }
+  .err { color:var(--red); font-size:13px; min-height:18px; } .hint { color:var(--grey); font-size:12px; }
+  .legend { font-size:12px; color:var(--grey); margin-top:8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>BoothPulse</h1>
+  <span id="scope"></span>
+  <div class="meta" id="meta" hidden>
+    <span class="live">LIVE</span><span id="updated"></span>
+    <button class="link" id="export">Export CSV</button>
+    <button class="link" id="logout">Sign out</button>
+  </div>
+</header>
+
+<section id="login" class="login" hidden>
+  <h2>Sign in</h2>
+  <label for="phone">Mobile number</label>
+  <input id="phone" inputmode="numeric" maxlength="13" placeholder="10-digit mobile">
+  <div id="otp-box" hidden>
+    <label for="code">OTP</label>
+    <input id="code" inputmode="numeric" maxlength="6" placeholder="6-digit code">
+  </div>
+  <div class="err" id="login-err"></div>
+  <button id="login-btn">Send OTP</button>
+  <p class="hint" id="dev-hint"></p>
+</section>
+
+<main id="app" hidden>
+  <div class="tiles">
+    <div class="tile"><div class="label">Overall turnout</div><div class="value" id="t-pct">-</div></div>
+    <div class="tile" style="border-color:var(--green)"><div class="label">Voters marked done</div><div class="value" id="t-voted">-</div></div>
+    <div class="tile" style="border-color:var(--amber)"><div class="label">Pending</div><div class="value" id="t-pending">-</div></div>
+    <div class="tile" style="border-color:var(--red)"><div class="label">Open assistance requests</div><div class="value" id="t-assist">-</div></div>
+  </div>
+  <div class="grid">
+    <div class="card"><h2>Turnout by cluster</h2><div id="clusters"></div><div class="legend">Amber: below 45%</div></div>
+    <div class="card"><h2>Voter status mix</h2><div id="mix"></div></div>
+    <div class="card"><h2>Priority alerts</h2><div id="alerts"></div></div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <h2>Booths</h2>
+    <table>
+      <thead><tr>
+        <th data-k="number" class="n">Booth</th><th data-k="name">Name</th><th data-k="cluster">Cluster</th>
+        <th data-k="total" class="n">Voters</th><th data-k="voted" class="n">Voted</th><th data-k="turnout_pct" class="n">Turnout</th>
+        <th data-k="pending" class="n">Pending</th><th data-k="assistance_open" class="n">Assist</th><th data-k="last_sync">Last sync</th>
+      </tr></thead>
+      <tbody id="booths"></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+const API = "/api";
+const LABELS = {vote_done:"Vote done", pending:"Pending", contacted:"Contacted", not_contacted:"Not contacted", needs_assistance:"Needs assistance", not_available:"Not available"};
+const COLORS = {vote_done:"var(--green)", pending:"var(--amber)", contacted:"#2563eb", not_contacted:"var(--grey)", needs_assistance:"var(--red)", not_available:"#9ca3af"};
+let token = localStorage.getItem("bp_token");
+let sortKey = "number", sortDir = 1, lastData = null, timer = null;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = (n) => Number(n).toLocaleString("en-IN");
+
+async function call(path, opts = {}) {
+  const headers = {"Content-Type": "application/json", ...(token ? {Authorization: "Token " + token} : {})};
+  const res = await fetch(API + path, {...opts, headers});
+  if (res.status === 401) { signOut(); throw new Error("Session expired"); }
+  const body = res.headers.get("content-type")?.includes("json") ? await res.json() : await res.blob();
+  if (!res.ok) throw new Error(body.detail || (body.phone && body.phone[0]) || "Request failed");
+  return body;
+}
+
+function showLogin() { $("login").hidden = false; $("app").hidden = true; $("meta").hidden = true; }
+function signOut() { token = null; localStorage.removeItem("bp_token"); clearInterval(timer); showLogin(); }
+
+$("login-btn").onclick = async () => {
+  $("login-err").textContent = "";
+  try {
+    if ($("otp-box").hidden) {
+      const r = await call("/auth/otp/request/", {method:"POST", body: JSON.stringify({phone: $("phone").value})});
+      $("otp-box").hidden = false; $("login-btn").textContent = "Verify"; $("code").focus();
+      $("dev-hint").textContent = r.dev_code ? "Development mode code: " + r.dev_code : r.detail;
+    } else {
+      const r = await call("/auth/otp/verify/", {method:"POST", body: JSON.stringify({phone: $("phone").value, code: $("code").value, device_id: "web"})});
+      token = r.token; localStorage.setItem("bp_token", token); start();
+    }
+  } catch (e) { $("login-err").textContent = e.message; }
+};
+
+$("logout").onclick = async () => { try { await call("/auth/logout/", {method:"POST"}); } catch (e) {} signOut(); };
+$("export").onclick = async () => {
+  const blob = await call("/reports/booths.csv");
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "booth-report.csv"; a.click();
+};
+document.querySelectorAll("th[data-k]").forEach(th => th.onclick = () => {
+  const k = th.dataset.k; sortDir = (sortKey === k) ? -sortDir : 1; sortKey = k; renderBooths();
+});
+
+function ago(iso) {
+  if (!iso) return "never";
+  const m = Math.round((Date.now() - new Date(iso)) / 60000);
+  return m < 1 ? "just now" : m < 60 ? m + " min ago" : Math.round(m / 60) + " h ago";
+}
+
+function renderBooths() {
+  if (!lastData) return;
+  const rows = [...lastData.booths].sort((a, b) => (a[sortKey] > b[sortKey] ? 1 : a[sortKey] < b[sortKey] ? -1 : 0) * sortDir);
+  $("booths").innerHTML = rows.map(b => `<tr>
+    <td class="n">${b.number}</td><td>${esc(b.name)}</td><td>${esc(b.cluster)}</td>
+    <td class="n">${fmt(b.total)}</td><td class="n">${fmt(b.voted)}</td>
+    <td class="n"><span class="pill" style="background:${b.turnout_pct < 45 ? "var(--amber)" : "var(--teal)"}">${b.turnout_pct}%</span></td>
+    <td class="n">${fmt(b.pending)}</td><td class="n">${b.assistance_open || ""}</td><td>${ago(b.last_sync)}</td></tr>`).join("");
+}
+
+function render(d) {
+  lastData = d;
+  $("t-pct").textContent = d.totals.turnout_pct + "%";
+  $("t-voted").textContent = fmt(d.totals.voted);
+  $("t-pending").textContent = fmt(d.totals.pending);
+  $("t-assist").textContent = fmt(d.totals.assistance_open);
+  $("updated").textContent = "Updated " + new Date(d.generated_at).toLocaleTimeString("en-IN", {hour:"2-digit", minute:"2-digit", second:"2-digit"});
+  $("clusters").innerHTML = d.clusters.map(c => `<div class="bar-row"><span>${esc(c.name)}</span>
+    <div class="bar ${c.turnout_pct < 45 ? "low" : ""}"><div style="width:${Math.min(c.turnout_pct, 100)}%"></div></div>
+    <span class="num">${c.turnout_pct}%</span></div>`).join("") || "<p class='hint'>No booths in your scope.</p>";
+  const total = Object.values(d.status_mix).reduce((a, b) => a + b, 0) || 1;
+  $("mix").innerHTML = Object.entries(d.status_mix).map(([k, v]) => `<div class="bar-row"><span>${LABELS[k]}</span>
+    <div class="bar"><div style="width:${100 * v / total}%;background:${COLORS[k]}"></div></div>
+    <span class="num">${fmt(v)}</span></div>`).join("");
+  $("alerts").innerHTML = d.alerts.slice(0, 12).map(a => `<div class="alert"><span class="dot ${a.level}"></span>
+    <div><b>Booth ${a.booth}</b><br>${esc(a.message)}</div></div>`).join("") || "<p class='hint'>No alerts.</p>";
+  renderBooths();
+}
+
+async function refresh() { try { render(await call("/dashboard/")); } catch (e) { console.warn(e); } }
+
+async function start() {
+  try {
+    const me = await call("/me/");
+    $("scope").textContent = `${me.name} · ${me.role_label}${me.constituency ? " · " + me.constituency : ""}`;
+  } catch (e) { showLogin(); $("login-err").textContent = e.message; return; }
+  $("login").hidden = true; $("app").hidden = false; $("meta").hidden = false;
+  await refresh(); clearInterval(timer); timer = setInterval(refresh, 15000);
+}
+
+token ? start() : showLogin();
+</script>
+</body>
+</html>

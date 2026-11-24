@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.sqlite3
+db.sqlite3
+staticfiles/
+.pytest_cache/
+
+# Flet build output
+mobile/build/
+mobile/storage/
+
+# Never commit real electoral rolls or voter exports
+*.roll.csv
+rolls/
+exports/
